@@ -22,6 +22,8 @@ Sieviete-uz-sievieti balss pārnese(tiek izmantoti viena un tā paša runātāja
 
 Vīrietis-uz-sievieti balss pārnese
 
+https://user-images.githubusercontent.com/103249663/210458305-880786a0-4276-4d5d-9734-b62ac4719675.mp4
+
 Sieviete-uz-vīrieti balss pārnese
 
 Vīrietis-uz-vīrieti
