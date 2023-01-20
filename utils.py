@@ -13,145 +13,58 @@ def librosa_write(outfile, x, sr):
         soundfile.write(outfile, x, sr)
 
 def wav2spectrum(filename):
-    x, sr = librosa.load(filename)
+    x, sr = librosa.load(filename) #STFT with semi-dB scale
     S = librosa.stft(x, n_fft=N_FFT)
-    p = np.angle(S)
-
-    S = np.log(np.abs(S)+0.5)
-    S1=librosa.amplitude_to_db(librosa.feature.melspectrogram(y=x, sr=sr, hop_length=N_CHANNELS, n_fft=N_FFT, n_mels=256, power=1, fmin=100))
-    S2=np.log1p(librosa.feature.melspectrogram(S=S, sr=sr, hop_length=N_CHANNELS, n_fft=N_FFT, n_mels=256, power=1))
+    S = np.log(np.abs(S)+0.1)
     #print(S1, S2)
     #time.sleep(200)
     return S, sr
 
 
 def spectrum2wav(spectrum, sr, outfile):
-    # Return the all-zero vector with the same shape of `a_content`
-    # x = librosa.feature.inverse.mel_to_audio(M=librosa.db_to_amplitude(spectrum), sr=sr, hop_length=N_CHANNELS, n_fft=N_FFT, power=2, fmin=100)
-    x=librosa.griffinlim(S=np.exp(spectrum)-0.5, n_fft=N_FFT)
-    # a = np.exp(spectrum) - 1
-    # p = 2 * np.pi * np.random.random_sample(spectrum.shape) - np.pi
-    # for i in range(50):
-    #     S = a * np.exp(1j * p)
-    #     x = librosa.istft(S)
-    #     p = np.angle(librosa.stft(x, N_FFT))
+    x = librosa.griffinlim(S=np.exp(spectrum)-0.1, n_fft=N_FFT) #Griffin-Lim
     librosa_write(outfile, x, sr)
-
-
-def wav2spectrum_keep_phase(filename):
-    x, sr = librosa.load(filename)
-    S = librosa.stft(x, N_FFT)
-    p = np.angle(S)
-
-    S = np.log1p(np.abs(S))
-    return S, p, sr
-
-
-def spectrum2wav_keep_phase(spectrum, p, sr, outfile):
-    # Return the all-zero vector with the same shape of `a_content`
-    a = np.exp(spectrum) - 1
-    for i in range(50):
-        S = a * np.exp(1j * p)
-        x = librosa.istft(S)
-        p = np.angle(librosa.stft(x, N_FFT))
-    librosa_write(outfile, x, sr)
-
 
 def compute_content_loss(a_C, a_G):
-    """
-    Compute the content cost
-
-    Arguments:
-    a_C -- tensor of dimension (1, n_C, n_H, n_W)
-    a_G -- tensor of dimension (1, n_C, n_H, n_W)
-
-    Returns:
-    J_content -- scalar that you compute using equation 1 above
-    """
     m, n_C, n_H, n_W = a_G.shape
 
-    # Reshape a_C and a_G to the (m * n_C, n_H * n_W)
+    # Reshape a_C and a_G to (m * n_C, n_H * n_W)
     a_C_unrolled = a_C.view(m * n_C, n_H * n_W)
     a_G_unrolled = a_G.view(m * n_C, n_H * n_W)
+    L_content = torch.square(a_C_unrolled - a_G_unrolled).mean()/4
 
-    # Compute the cost
-    J_content =  1.0 / (4 * m * n_C * n_H * n_W) * torch.sum((a_C_unrolled - a_G_unrolled) ** 2)
-
-    return J_content
+    return L_content
 
 
 def gram(A):
-    """
-    Argument:
-    A -- matrix of shape (n_C, n_L)
-
-    Returns:
-    GA -- Gram matrix of shape (n_C, n_C)
-    """
     GA = torch.matmul(A, A.t())
 
     return GA
 
 
 def gram_over_time_axis(A):
-    """
-    Argument:
-    A -- matrix of shape (1, n_C, n_H, n_W)
-
-    Returns:
-    GA -- Gram matrix of A along time axis, of shape (n_C, n_C)
-    """
     m, n_C, n_H, n_W = A.shape
-
-    # Reshape the matrix to the shape of (n_C, n_L)
-    # Reshape a_C and a_G to the (m * n_C, n_H * n_W)
+    # Reshape a_C and a_G to (m * n_C * n_H, n_W)
     # print(A.shape)
     A_unrolled = A.reshape(m * n_C * n_H, n_W)
     GA = torch.matmul(A_unrolled, A_unrolled.t())
-
+    GA = GA / (n_W)
     return GA
 
 
 def compute_layer_style_loss(a_S, a_G):
-    """
-    Arguments:
-    a_S -- tensor of dimension (1, n_C, n_H, n_W)
-    a_G -- tensor of dimension (1, n_C, n_H, n_W)
 
-    Returns:
-    J_style_layer -- tensor representing a scalar style cost.
-    """
-    m, n_C, n_H, n_W = a_G.shape
-
-    # Reshape the matrix to the shape of (n_C, n_L)
-    # Reshape a_C and a_G to the (m * n_C * n_H, n_W)
-
-    # Calculate the gram
-    # !!!!!! IMPORTANT !!!!! Here we compute the Gram along n_C,
-    # not along n_H * n_W. But is the result the same? No.
-    # print(a_S.permute(0, 1, 3, 2).shape)
     GS = gram_over_time_axis(a_S)
     GG = gram_over_time_axis(a_G)
-
-    # Computing the loss
-    J_style_layer = 1.0 / (4 * ((n_C*n_H) ** 2) * (n_W)) * torch.sum((GS - GG) ** 2)
-
-    return J_style_layer
-
-
-"""
-# Test
-test_S = torch.randn(1, 6, 2, 2)
-test_G = torch.randn(1, 6, 2, 2)
-print(test_S)
-print(test_G)
-print(compute_layer_style_loss(test_S, test_G))
+    L_style_layer = torch.square(GS - GG).mean()
+    # print(L_style_layer)
+    # time.sleep(10)
+    return L_style_layer
 
 
-# Test
-test_C = torch.randn(1, 6, 2, 2)
-test_G = torch.randn(1, 6, 2, 2)
-print(test_C)
-print(test_G)
-print(compute_content_loss(test_C, test_G))
-"""
+def compute_variation_loss(a_G):
+    m, n_C, n_H, n_W = a_G.shape
+    #vectorized, loop-less implementation of variation loss
+    loss = torch.sum(torch.pow(a_G[:, :, :-1, :] - a_G[:, :, 1:, :], 2)) + torch.sum(torch.pow(a_G[:, :, :, :-1] - a_G[:, :, :, 1:], 2))
+    loss = loss/((n_H - 1)*(n_W - 1))
+    return loss
