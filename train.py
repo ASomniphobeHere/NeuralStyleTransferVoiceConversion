@@ -8,13 +8,14 @@ from model import *
 import time
 import math
 import argparse
+from pydub import AudioSegment
 cuda = True if torch.cuda.is_available() else False
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-content', help='Content input')
-parser.add_argument('-content_weight', help='Content weight. Default is 1e2', default = 1e2)
+parser.add_argument('-content_weight', help='Content weight. Default is 1e2', default = 1e1)
 parser.add_argument('-style', help='Style input')
-parser.add_argument('-style_weight', help='Style weight. Default is 1', default = 1e7)
+parser.add_argument('-style_weight', help='Style weight. Default is 1', default = 1e5)
 parser.add_argument('-variation_weight', help='Variation weight. Default is 1', default = 1e-2)
 parser.add_argument('-epochs', type=int, help='Number of epoch iterations. Default is 20000', default = 20000)
 parser.add_argument('-print_interval', type=int, help='Number of epoch iterations between printing losses', default = 100)
@@ -68,7 +69,10 @@ if cuda:
 
 a_C = model_content(a_C_var)
 a_S = model_style(a_S_var)
-spectrum2wav(a_content, sr, "output/content.wav")
+a_C_ext = AudioSegment.from_wav(CONTENT_FILENAME) + AudioSegment.silent(duration=500)
+a_S_ext = AudioSegment.from_wav(STYLE_FILENAME) + AudioSegment.silent(duration=500)
+a_C_ext.export("output/content.wav", format="wav")
+a_S_ext.export("output/style.wav", format="wav")
 # Optimizer
 learning_rate = args.learning_rate
 # a_G_var = Variable(torch.randn(a_content_torch.shape) * 1e-1)
@@ -112,6 +116,8 @@ for epoch in range(1, num_epochs + 1):
     variation_loss = variation_param * compute_variation_loss(a_G_var)
     min_loss = torch.min(a_G_var)
     loss = style_loss + variation_loss - min_loss
+    if epoch % 10 == 0:
+        loss += content_loss
     loss.backward(retain_graph=True)
     optimizer.step()
 
@@ -131,6 +137,8 @@ for epoch in range(1, num_epochs + 1):
         gen_spectrum = a_G_var.cpu().data.numpy().squeeze()
         gen_audio_C = "output/" + args.output + ".wav"
         spectrum2wav(gen_spectrum, sr, gen_audio_C)
+        a_G_ext = AudioSegment.from_wav(gen_audio_C) + AudioSegment.silent(duration=500)
+        a_G_ext.export(gen_audio_C, format="wav")
         plt.figure(figsize=(5, 5))
         # we then use the 2nd column.
         plt.subplot(1, 1, 1)
